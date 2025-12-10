@@ -1,0 +1,14 @@
+[project]
+name = "simpleoauhexample"
+version = "0.1.0"
+description = "Simple OAuth example with FastAPI and React"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "authlib>=1.6.5",
+    "fastapi>=0.124.0",
+    "uvicorn>=0.34.0",
+    "pyjwt>=2.10.1",
+    "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
+]
