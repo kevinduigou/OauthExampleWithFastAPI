@@ -28,6 +28,10 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "your-s
 config = Config(environ={
     "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", "your-google-client-id"),
     "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", "your-google-client-secret"),
+    "FACEBOOK_CLIENT_ID": os.getenv("FACEBOOK_CLIENT_ID", "your-facebook-client-id"),
+    "FACEBOOK_CLIENT_SECRET": os.getenv("FACEBOOK_CLIENT_SECRET", "your-facebook-client-secret"),
+    "TWITTER_CLIENT_ID": os.getenv("TWITTER_CLIENT_ID", "your-twitter-client-id"),
+    "TWITTER_CLIENT_SECRET": os.getenv("TWITTER_CLIENT_SECRET", "your-twitter-client-secret"),
 })
 
 oauth = OAuth(config)
@@ -36,6 +40,32 @@ oauth.register(
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={
         'scope': 'openid email profile'
+    }
+)
+
+oauth.register(
+    name='facebook',
+    client_id=config('FACEBOOK_CLIENT_ID'),
+    client_secret=config('FACEBOOK_CLIENT_SECRET'),
+    access_token_url='https://graph.facebook.com/oauth/access_token',
+    authorize_url='https://www.facebook.com/dialog/oauth',
+    api_base_url='https://graph.facebook.com/',
+    client_kwargs={
+        'scope': 'email public_profile'
+    }
+)
+
+oauth.register(
+    name='twitter',
+    client_id=config('TWITTER_CLIENT_ID'),
+    client_secret=config('TWITTER_CLIENT_SECRET'),
+    authorize_url='https://twitter.com/i/oauth2/authorize',
+    access_token_url='https://api.twitter.com/2/oauth2/token',
+    api_base_url='https://api.twitter.com/2/',
+    client_kwargs={
+        'scope': 'tweet.read users.read offline.access',
+        'token_endpoint_auth_method': 'client_secret_basic',  # Changed from client_secret_post
+        'code_challenge_method': 'S256'  # PKCE required by Twitter OAuth 2.0
     }
 )
 
@@ -70,6 +100,26 @@ def verify_token(access_token: Optional[str]) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+def _build_login_response(user_id: str) -> RedirectResponse:
+    """Create a cookie-based redirect response for authenticated users."""
+    access_token = create_access_token(
+        subject=user_id,
+        expires_delta=timedelta(minutes=15),
+    )
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000/app")
+    response = RedirectResponse(url=frontend_url)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=15 * 60,
+    )
+    return response
+
+
 @app.get("/")
 def read_root():
     """Root endpoint"""
@@ -92,33 +142,63 @@ async def google_callback(request: Request):
     # 1. Exchange 'code' with Google to get user info
     token = await oauth.google.authorize_access_token(request)
     user_info = token.get('userinfo')
-    
+
     if not user_info:
         return {"error": "Failed to get user info"}
     
     # 2. Find/create user in DB, get user_id
     # For this example, we'll use the Google user ID
     user_id = user_info.get('sub')  # Google's unique user ID
-    user_email = user_info.get('email')
-    
-    # Create access token
-    access_token = create_access_token(
-        subject=user_id,
-        expires_delta=timedelta(minutes=15),
-    )
 
-    # Put token in HttpOnly cookie and redirect to frontend
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000/app")
-    response = RedirectResponse(url=frontend_url)
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=False,  # Set to True in production with HTTPS
-        samesite="lax",
-        max_age=15 * 60,
+    return _build_login_response(user_id)
+
+
+@app.get("/auth/facebook")
+async def auth_facebook(request: Request):
+    """Initialize OAuth flow with Facebook"""
+    redirect_uri = os.getenv(
+        "FACEBOOK_REDIRECT_URI", "http://localhost:8000/auth/facebook/callback"
     )
-    return response
+    return await oauth.facebook.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/facebook/callback")
+async def facebook_callback(request: Request):
+    """Handle Facebook OAuth callback and issue local token."""
+    token = await oauth.facebook.authorize_access_token(request)
+    resp = await oauth.facebook.get('me?fields=id,name,email', token=token)
+    user_info = resp.json()
+
+    if not user_info:
+        return {"error": "Failed to get user info"}
+
+    user_id = user_info.get('id')
+
+    return _build_login_response(user_id)
+
+
+@app.get("/auth/twitter")
+async def auth_twitter(request: Request):
+    """Initialize OAuth flow with Twitter"""
+    redirect_uri = os.getenv(
+        "TWITTER_REDIRECT_URI", "http://localhost:8000/auth/twitter/callback"
+    )
+    return await oauth.twitter.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/twitter/callback")
+async def twitter_callback(request: Request):
+    """Handle Twitter OAuth callback and issue local token."""
+    token = await oauth.twitter.authorize_access_token(request)
+    resp = await oauth.twitter.get('users/me', token=token)
+    user_info = resp.json().get('data', {})
+
+    if not user_info:
+        return {"error": "Failed to get user info"}
+
+    user_id = user_info.get('id')
+
+    return _build_login_response(user_id)
 
 
 @app.get("/auth/me")

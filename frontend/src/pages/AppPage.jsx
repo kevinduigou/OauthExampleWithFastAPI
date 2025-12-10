@@ -75,7 +75,7 @@ function AppPage() {
       {user && user.authenticated ? (
         <div style={{ textAlign: 'center', width: '100%', maxWidth: '900px' }}>
           <p style={{ color: 'green', fontSize: '18px', marginTop: '20px' }}>
-            ✓ Successfully authenticated with Google OAuth
+            ✓ Successfully authenticated with OAuth
           </p>
           <p style={{ marginTop: '10px', color: '#666' }}>
             Your access token has been stored in an HttpOnly cookie
