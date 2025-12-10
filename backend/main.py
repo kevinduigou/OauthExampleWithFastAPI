@@ -64,7 +64,8 @@ oauth.register(
     api_base_url='https://api.twitter.com/2/',
     client_kwargs={
         'scope': 'tweet.read users.read offline.access',
-        'token_endpoint_auth_method': 'client_secret_post'
+        'token_endpoint_auth_method': 'client_secret_basic',  # Changed from client_secret_post
+        'code_challenge_method': 'S256'  # PKCE required by Twitter OAuth 2.0
     }
 )
 
