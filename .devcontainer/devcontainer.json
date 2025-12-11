@@ -1,0 +1,168 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/postgres
+{
+"name": "mynicegui",
+"dockerComposeFile": "docker-compose.yml",
+"service": "devcontainer",
+"workspaceFolder": "/workspaces/mynicegui",
+
+// Features to add to the dev container. More info: https://containers.dev/features.
+// "features": {},
+
+// Use 'forwardPorts' to make a list of ports inside the container available locally.
+// This can be used to network with other containers or the host.
+"forwardPorts": [8080, 3000],
+
+"initializeCommand": ".devcontainer/initialize_devcontainer.sh",
+"postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post_install.sh",
+
+"customizations": {
+"vscode": {
+"settings": {
+"better-comments.highlightPlainText": true,
+"editor.formatOnSave": true,
+"editor.codeActionsOnSave": {
+"source.organizeImports": true,
+"source.fixAll.ruff": "explicit",
+"source.organizeImports.ruff": "explicit",
+"source.unusedImports.ruff": "never"
+},
+"editor.defaultFormatter": "charliermarsh.ruff",
+"ruff.path": [
+".venv/bin/ruff"
+],
+"python.defaultInterpreterPath": "/workspaces/mynicegui/.venv/bin/python",
+"python.languageServer": "Pylance",
+"python.linting.enabled": true,
+"python.linting.mypyEnabled": true,
+"python.linting.mypyPath": "/workspaces/mynicegui/.venv/bin/mypy",
+"python.analysis.typeCheckingMode": "strict",
+"terminal.integrated.defaultProfile.linux": "bash",
+"terminal.integrated.inheritEnv": true,
+"terminal.integrated.profiles.linux": {
+"bash": {
+"path": "/bin/bash",
+"args": [
+"-l"
+]
+},
+"zsh": {
+"path": "/bin/zsh",
+"args": [
+"-l"
+]
+}
+},
+"files.associations": {
+"docker-compose.yml": "yaml"
+},
+"files.exclude": {
+".mypy_cache": true
+},
+"better-comments.tags": [
+{
+"tag": "!",
+"color": "#FF2D00",
+"strikethrough": false,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": true,
+"italic": false
+},
+{
+"tag": "?",
+"color": "#3498DB",
+"strikethrough": false,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": false,
+"italic": false
+},
+{
+"tag": "//",
+"color": "#474747",
+"strikethrough": true,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": false,
+"italic": false
+},
+{
+"tag": "todo",
+"color": "#FF8C00",
+"strikethrough": false,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": false,
+"italic": false
+},
+{
+"tag": "*",
+"color": "#98C379",
+"strikethrough": false,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": false,
+"italic": false
+},
+{
+"tag": "+",
+"color": "#98C379",
+"strikethrough": false,
+"underline": false,
+"backgroundColor": "transparent",
+"bold": true,
+"italic": false
+},
+{
+"tag": "%",
+"color": "#98C379",
+"strikethrough": false,
+"underline": true,
+"backgroundColor": "transparent",
+"bold": true,
+"italic": false
+},
+{
+"tag": "--",
+"color": "#98C379",
+"strikethrough": false,
+"underline": true,
+"backgroundColor": "transparent",
+"bold": true,
+"italic": false
+}
+],
+"todohighlight.keywords": []
+},
+// Add the IDs of extensions you want installed when the container is created.
+"extensions": [
+"ms-python.python",
+"ms-python.debugpy",
+"atlassian.atlascode",
+"eamodio.gitlens",
+"editorconfig.editorconfig",
+"tamasfe.even-better-toml",
+"njpwerner.autodocstring",
+"gitlab.gitlab-workflow",
+"ms-vsliveshare.vsliveshare",
+"pomdtr.excalidraw-editor",
+"aaron-bond.better-comments",
+"streetsidesoftware.code-spell-checker",
+"yzhang.markdown-all-in-one",
+"alexcvzz.vscode-sqlite",
+"rebornix.project-snippets",
+"twixes.pypi-assistant",
+"charliermarsh.ruff",
+"saoudrizwan.claude-dev"
+]
+}
+},
+"remoteEnv": {
+"PATH": "${containerEnv:PATH}:/home/${localEnv:USER}/.local/bin/",
+// Make sure all the variable are defined when using the terminal (e.g. pytest)
+},
+
+"remoteUser": "${localEnv:USER}",
+"containerUser": "${localEnv:USER}"
+}
