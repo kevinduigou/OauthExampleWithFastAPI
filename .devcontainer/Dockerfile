@@ -36,19 +36,6 @@ RUN apt-get update \
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
-# Install Terraform
-RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y lsb-release gnupg software-properties-common \
- && wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg \
- && echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list \
- && apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y terraform \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
-
-# Install Helm
-RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
 # Install Google Cloud SDK
 RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
  && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
@@ -57,10 +44,21 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js (LTS) and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+ && apt-get install -y nodejs \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 # Ensure the requested user exists before switching
 RUN if ! id -u ${USERNAME} >/dev/null 2>&1; then useradd -ms /bin/bash ${USERNAME}; fi
 
 USER ${USERNAME}
 
-CMD ["sh"]
 
+# Download the latest uv installer and install uv
+RUN curl -L https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
+ && sh /tmp/uv-installer.sh && rm /tmp/uv-installer.sh
+
+
+CMD ["sh"]
