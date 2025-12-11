@@ -14,6 +14,9 @@ dependencies = [
     "result==0.17.0",
     "redis>=7.1.0",
     "rq>=2.6.1",
+    "pymongo>=4.8.0",
+    "passlib[argon2,bcrypt]>=1.7.4",
+    "argon2-cffi>=23.1.0",
 ]
 
 [dependency-groups]

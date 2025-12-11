@@ -4,18 +4,27 @@ from typing import Optional
 
 import jwt
 from authlib.integrations.starlette_client import OAuth
-from fastapi import Cookie, FastAPI, HTTPException, Request
+from fastapi import Body, Cookie, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from result import Err, Ok
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
 
+from backend.application.auth_service import AuthService
+from backend.config import CONFIG
+from backend.infrastructure.email_sender import BrevoEmailSender
 from backend.infrastructure.rq_client import RQClient
+from backend.infrastructure.user_repository import MongoUserRepository
 
 app = FastAPI()
 
 # Initialize RQ client for job management
 rq_client = RQClient()
+auth_service = AuthService(
+    repository=MongoUserRepository(CONFIG.mongo_uri, CONFIG.mongo_db_name),
+    email_sender=BrevoEmailSender(),
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -112,6 +121,13 @@ def verify_token(access_token: Optional[str]) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+def _convert_expires_at(token: dict[str, object]) -> datetime | None:
+    expires_at_raw = token.get("expires_at")
+    if isinstance(expires_at_raw, (int, float)):
+        return datetime.fromtimestamp(expires_at_raw, timezone.utc)
+    return None
+
+
 def _build_login_response(user_id: str) -> RedirectResponse:
     """Create a cookie-based redirect response for authenticated users."""
     access_token = create_access_token(
@@ -119,8 +135,7 @@ def _build_login_response(user_id: str) -> RedirectResponse:
         expires_delta=timedelta(minutes=15),
     )
 
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000/app")
-    response = RedirectResponse(url=frontend_url)
+    response = RedirectResponse(url=CONFIG.frontend_url)
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -136,6 +151,41 @@ def _build_login_response(user_id: str) -> RedirectResponse:
 def read_root():
     """Root endpoint"""
     return {"message": "OAuth Example API"}
+
+
+@app.post("/auth/register")
+def register_user(payload: dict = Body(...)) -> dict[str, str]:
+    match auth_service.register_user(payload.get("email", ""), payload.get("password", "")):
+        case Ok(identifier):
+            return {"user_id": identifier, "status": "pending_validation"}
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
+
+
+@app.post("/auth/login")
+def login_user(payload: dict = Body(...)) -> RedirectResponse:
+    match auth_service.authenticate(payload.get("email", ""), payload.get("password", "")):
+        case Ok(user):
+            if user.identifier is None:
+                raise HTTPException(status_code=400, detail="User identifier missing")
+            return _build_login_response(user.identifier)
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
+
+
+@app.get("/validate")
+def validate_account(token: str) -> RedirectResponse:
+    match auth_service.validate_account(token):
+        case Ok(_):
+            response = RedirectResponse(url=CONFIG.frontend_url)
+            response.set_cookie(
+                key="validation_status",
+                value="validated",
+                max_age=300,
+            )
+            return response
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
 
 
 @app.get("/auth/google")
@@ -160,11 +210,19 @@ async def google_callback(request: Request):
     if not user_info:
         return {"error": "Failed to get user info"}
 
-    # 2. Find/create user in DB, get user_id
-    # For this example, we'll use the Google user ID
-    user_id = user_info.get("sub")  # Google's unique user ID
-
-    return _build_login_response(user_id)
+    provider_user_id = user_info.get("sub", "")
+    match auth_service.register_oauth_user(
+        "google",
+        str(provider_user_id),
+        user_info.get("email"),
+        token.get("access_token"),
+        token.get("refresh_token"),
+        _convert_expires_at(token),
+    ):
+        case Ok(identifier):
+            return _build_login_response(identifier)
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
 
 
 @app.get("/auth/facebook")
@@ -186,9 +244,20 @@ async def facebook_callback(request: Request):
     if not user_info:
         return {"error": "Failed to get user info"}
 
-    user_id = user_info.get("id")
+    user_id = user_info.get("id", "")
 
-    return _build_login_response(user_id)
+    match auth_service.register_oauth_user(
+        "facebook",
+        str(user_id),
+        user_info.get("email"),
+        token.get("access_token"),
+        token.get("refresh_token"),
+        _convert_expires_at(token),
+    ):
+        case Ok(identifier):
+            return _build_login_response(identifier)
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
 
 
 @app.get("/auth/twitter")
@@ -210,9 +279,20 @@ async def twitter_callback(request: Request):
     if not user_info:
         return {"error": "Failed to get user info"}
 
-    user_id = user_info.get("id")
+    user_id = user_info.get("id", "")
 
-    return _build_login_response(user_id)
+    match auth_service.register_oauth_user(
+        "twitter",
+        str(user_id),
+        None,
+        token.get("access_token"),
+        token.get("refresh_token"),
+        _convert_expires_at(token),
+    ):
+        case Ok(identifier):
+            return _build_login_response(identifier)
+        case Err(error):
+            raise HTTPException(status_code=400, detail=error)
 
 
 @app.get("/auth/me")
