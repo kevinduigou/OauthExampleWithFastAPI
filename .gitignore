@@ -10,3 +10,5 @@ wheels/
 .venv
 frontend/node_modules/*
 .env
+.env-prod
+env-vars.yaml

@@ -1,7 +1,7 @@
-# Backend Dockerfile for FastAPI application
-# Uses uv for fast Python package management
+# Base Dockerfile for Python applications
+# This provides a common base image with uv package manager installed
 
-FROM python:3.13-slim
+FROM python:3.13-slim AS base
 
 WORKDIR /app
 
@@ -20,14 +20,5 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies using uv
 RUN uv sync --frozen --no-dev
 
-# Copy backend source code
-COPY backend/ ./backend/
-
 # Set Python path to include the app directory
 ENV PYTHONPATH=/app
-
-# Expose the FastAPI port (Cloud Run uses 8080)
-EXPOSE 8080
-
-# Run the FastAPI application with uvicorn on port 8080 for Cloud Run
-CMD ["uv", "run", "uvicorn", "backend.interface.main:app", "--host", "0.0.0.0", "--port", "8080"]

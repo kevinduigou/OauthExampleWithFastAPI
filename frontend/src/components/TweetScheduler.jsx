@@ -10,7 +10,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 
-const API_BASE_URL = 'http://localhost:8000'
+// Use runtime config from window.CONFIG (generated at container startup)
+const API_BASE_URL = window.CONFIG?.DEPLOYMENT_URL || 'http://localhost:8000'
 
 function TweetScheduler() {
   const [content, setContent] = useState('')
