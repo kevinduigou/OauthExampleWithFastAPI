@@ -33,9 +33,11 @@ auth_service = AuthService(
 # Add CORS middleware
 # Get allowed origins from environment or use defaults
 
+
 def get_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return origins if origins else ["http://localhost:3000"]
 
 
 CORS_ORIGINS = get_cors_origins()
@@ -147,13 +149,18 @@ def _build_login_response(user_id: str) -> RedirectResponse:
         expires_delta=timedelta(minutes=15),
     )
 
+    # Determine if we're in production (HTTPS)
+    is_production = CONFIG.frontend_url.startswith("https://")
+
     response = RedirectResponse(url=CONFIG.frontend_url)
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,  # Set to True in production with HTTPS
-        samesite="lax",
+        secure=is_production,  # True for HTTPS, False for local HTTP
+        samesite="none"
+        if is_production
+        else "lax",  # "none" required for cross-origin HTTPS
         max_age=15 * 60,
     )
     return response
@@ -191,6 +198,9 @@ def login_user(payload: dict = Body(...)) -> RedirectResponse:
 
 @app.get("/validate")
 def validate_account(token: str) -> RedirectResponse:
+    # Determine if we're in production (HTTPS)
+    is_production = CONFIG.frontend_url.startswith("https://")
+
     match auth_service.validate_account(token):
         case Ok(_):
             response = RedirectResponse(url=CONFIG.frontend_url)
@@ -198,6 +208,8 @@ def validate_account(token: str) -> RedirectResponse:
                 key="validation_status",
                 value="validated",
                 max_age=300,
+                secure=is_production,
+                samesite="none" if is_production else "lax",
             )
             return response
         case Err(error):
