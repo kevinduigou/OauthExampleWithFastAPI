@@ -13,8 +13,12 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from backend.application.auth_service import AuthService
 from backend.config import CONFIG
+from backend.domain.scheduled_tweet import ScheduledTweet
 from backend.infrastructure.email_sender import BrevoEmailSender
 from backend.infrastructure.rq_client import RQClient
+from backend.infrastructure.scheduled_tweet_repository import (
+    MongoScheduledTweetRepository,
+)
 from backend.infrastructure.user_repository import MongoUserRepository
 
 app = FastAPI()
@@ -86,7 +90,7 @@ oauth.register(
     access_token_url="https://api.twitter.com/2/oauth2/token",
     api_base_url="https://api.twitter.com/2/",
     client_kwargs={
-        "scope": "tweet.read users.read offline.access",
+        "scope": "tweet.read tweet.write users.read offline.access",
         # Changed from client_secret_post
         "token_endpoint_auth_method": "client_secret_basic",
         "code_challenge_method": "S256",  # PKCE required by Twitter OAuth 2.0
@@ -101,8 +105,7 @@ ALGORITHM = "HS256"
 def create_access_token(subject: str, expires_delta: timedelta) -> str:
     """Create a JWT access token"""
     expire = datetime.now(timezone.utc) + expires_delta
-    to_encode = {"sub": subject, "exp": expire,
-                 "iat": datetime.now(timezone.utc)}
+    to_encode = {"sub": subject, "exp": expire, "iat": datetime.now(timezone.utc)}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -155,7 +158,9 @@ def read_root():
 
 @app.post("/auth/register")
 def register_user(payload: dict = Body(...)) -> dict[str, str]:
-    match auth_service.register_user(payload.get("email", ""), payload.get("password", "")):
+    match auth_service.register_user(
+        payload.get("email", ""), payload.get("password", "")
+    ):
         case Ok(identifier):
             return {"user_id": identifier, "status": "pending_validation"}
         case Err(error):
@@ -164,7 +169,9 @@ def register_user(payload: dict = Body(...)) -> dict[str, str]:
 
 @app.post("/auth/login")
 def login_user(payload: dict = Body(...)) -> RedirectResponse:
-    match auth_service.authenticate(payload.get("email", ""), payload.get("password", "")):
+    match auth_service.authenticate(
+        payload.get("email", ""), payload.get("password", "")
+    ):
         case Ok(user):
             if user.identifier is None:
                 raise HTTPException(status_code=400, detail="User identifier missing")
@@ -429,3 +436,166 @@ def cancel_job(
             return {"job_id": job_id, "status": "canceled"}
         case Err(error):
             raise HTTPException(status_code=500, detail=str(error))
+
+
+# ============================================================================
+# Scheduled Tweet API Endpoints
+# ============================================================================
+
+# Initialize scheduled tweet repository
+scheduled_tweet_repository = MongoScheduledTweetRepository(
+    CONFIG.mongo_uri, CONFIG.mongo_db_name
+)
+
+
+@app.post("/tweets/schedule")
+def schedule_tweet(
+    payload: dict[str, str] = Body(...),
+    access_token: Optional[str] = Cookie(None),
+) -> dict[str, str]:
+    """Schedule a tweet to be sent at a specific time.
+
+    Args:
+        payload: Dictionary with 'content' and 'scheduled_at' (ISO format datetime)
+        access_token: JWT access token from cookie
+
+    Returns:
+        Dictionary with tweet_id and job_id
+    """
+    token_payload = verify_token(access_token)
+    user_id = token_payload.get("sub", "")
+
+    content = payload.get("content", "")
+    scheduled_at_str = payload.get("scheduled_at", "")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Tweet content is required")
+
+    if not scheduled_at_str:
+        raise HTTPException(status_code=400, detail="Scheduled time is required")
+
+    # Parse the scheduled datetime
+    scheduled_at = datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00"))
+
+    # Ensure the scheduled time is in the future
+    if scheduled_at <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400, detail="Scheduled time must be in the future"
+        )
+
+    # Create the scheduled tweet entity
+    tweet = ScheduledTweet(
+        user_id=user_id,
+        content=content,
+        scheduled_at=scheduled_at,
+        status="pending",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    # Save to database
+    create_result = scheduled_tweet_repository.create(tweet)
+    match create_result:
+        case Ok(tweet_id):
+            # Schedule the RQ job to send the tweet at the specified time
+            job_result = rq_client.enqueue_at(
+                scheduled_at,
+                "backend.application.commands_async.send_scheduled_tweet.execute_send_tweet_job",
+                tweet_id,
+                user_id,
+                content,
+                job_timeout=300,
+            )
+
+            match job_result:
+                case Ok(job_id):
+                    # Update the tweet with the job ID
+                    scheduled_tweet_repository.update_job_id(tweet_id, job_id)
+                    return {
+                        "tweet_id": tweet_id,
+                        "job_id": job_id,
+                        "status": "scheduled",
+                    }
+                case Err(error):
+                    # Delete the tweet if job scheduling failed
+                    scheduled_tweet_repository.delete(tweet_id)
+                    raise HTTPException(status_code=500, detail=str(error))
+        case Err(error):
+            raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.get("/tweets/scheduled")
+def list_scheduled_tweets(
+    access_token: Optional[str] = Cookie(None),
+) -> dict[str, object]:
+    """List all scheduled tweets for the current user.
+
+    Args:
+        access_token: JWT access token from cookie
+
+    Returns:
+        Dictionary with list of scheduled tweets
+    """
+    token_payload = verify_token(access_token)
+    user_id = token_payload.get("sub", "")
+
+    result = scheduled_tweet_repository.find_by_user(user_id)
+
+    match result:
+        case Ok(tweets):
+            tweets_list = [
+                {
+                    "id": tweet.identifier,
+                    "content": tweet.content,
+                    "scheduled_at": tweet.scheduled_at.isoformat()
+                    if tweet.scheduled_at
+                    else None,
+                    "status": tweet.status,
+                    "job_id": tweet.job_id,
+                    "created_at": tweet.created_at.isoformat()
+                    if tweet.created_at
+                    else None,
+                    "sent_at": tweet.sent_at.isoformat() if tweet.sent_at else None,
+                    "error_message": tweet.error_message,
+                }
+                for tweet in tweets
+            ]
+            return {"tweets": tweets_list}
+        case Err(error):
+            raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.delete("/tweets/{tweet_id}")
+def cancel_scheduled_tweet(
+    tweet_id: str,
+    access_token: Optional[str] = Cookie(None),
+) -> dict[str, str]:
+    """Cancel a scheduled tweet.
+
+    Args:
+        tweet_id: The tweet ID to cancel
+        access_token: JWT access token from cookie
+
+    Returns:
+        Dictionary with cancellation status
+    """
+    token_payload = verify_token(access_token)
+    user_id = token_payload.get("sub", "")
+
+    # Find the tweet
+    tweet_result = scheduled_tweet_repository.find_by_id(tweet_id)
+    match tweet_result:
+        case Ok(tweet):
+            # Verify ownership
+            if tweet.user_id != user_id:
+                raise HTTPException(status_code=403, detail="Not authorized")
+
+            # Cancel the RQ job if it exists
+            if tweet.job_id:
+                rq_client.cancel_job(tweet.job_id)
+
+            # Update status to cancelled
+            scheduled_tweet_repository.update_status(tweet_id, "cancelled")
+
+            return {"tweet_id": tweet_id, "status": "cancelled"}
+        case Err(error):
+            raise HTTPException(status_code=404, detail=str(error))

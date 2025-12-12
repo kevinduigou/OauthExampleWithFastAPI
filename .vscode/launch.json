@@ -33,6 +33,7 @@
             "module": "rq.cli",
             "args": [
                 "worker",
+                "--with-scheduler",
                 "--url",
                 "redis://redis:6379",
                 "default"

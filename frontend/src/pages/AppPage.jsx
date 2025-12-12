@@ -23,6 +23,35 @@ function AppPage() {
         {/* Job Monitor Component */}
         <JobMonitor />
 
+        {/* Navigation to Tweet Scheduler */}
+        <div style={{ 
+          marginTop: '30px', 
+          padding: '20px', 
+          backgroundColor: '#e8f4fd', 
+          borderRadius: '8px',
+          maxWidth: '500px',
+          margin: '30px auto 0'
+        }}>
+          <h3>🐦 Tweet Scheduler</h3>
+          <p style={{ color: '#666', marginBottom: '15px' }}>
+            Schedule tweets to be posted at a specific date and time
+          </p>
+          <a 
+            href="/tweets" 
+            style={{ 
+              display: 'inline-block',
+              padding: '10px 20px',
+              backgroundColor: '#1da1f2',
+              color: 'white',
+              textDecoration: 'none',
+              borderRadius: '6px',
+              fontWeight: 'bold'
+            }}
+          >
+            Go to Tweet Scheduler →
+          </a>
+        </div>
+
         {/* Cookie Details */}
         <div style={{ 
           marginTop: '30px', 
