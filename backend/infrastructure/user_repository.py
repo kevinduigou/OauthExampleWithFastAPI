@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, final
 
 from pymongo import MongoClient
@@ -12,7 +13,7 @@ class MongoUserRepository:
     __slots__ = ("_client", "_collection")
 
     def __init__(self, uri: str, db_name: str) -> None:
-        self._client = MongoClient(uri)
+        self._client: MongoClient[Any] = MongoClient(uri)
         database = self._client[db_name]
         self._collection: Collection[Any] = database["users"]
 
@@ -47,22 +48,28 @@ class MongoUserRepository:
             else None
         )
 
+        hashed_password = document.get("hashed_password")
+        provider_user_id = document.get("provider_user_id")
+        access_token = document.get("access_token")
+        refresh_token = document.get("refresh_token")
+        token_expires_at = document.get("token_expires_at")
+
         return User(
             email=email,
-            hashed_password=document.get("hashed_password"),
+            hashed_password=hashed_password
+            if isinstance(hashed_password, str)
+            else None,
             is_validated=bool(document.get("is_validated", False)),
             validation_token=token,
             provider=str(document.get("provider", "")),
-            provider_user_id=document.get("provider_user_id")
-            if isinstance(document.get("provider_user_id"), str)
+            provider_user_id=provider_user_id
+            if isinstance(provider_user_id, str)
             else None,
-            access_token=document.get("access_token")
-            if isinstance(document.get("access_token"), str)
+            access_token=access_token if isinstance(access_token, str) else None,
+            refresh_token=refresh_token if isinstance(refresh_token, str) else None,
+            token_expires_at=token_expires_at
+            if isinstance(token_expires_at, datetime)
             else None,
-            refresh_token=document.get("refresh_token")
-            if isinstance(document.get("refresh_token"), str)
-            else None,
-            token_expires_at=document.get("token_expires_at"),
             identifier=str(document.get("_id", "")),
         )
 
@@ -149,5 +156,62 @@ class MongoUserRepository:
                 return Err("User not found")
 
             return Ok(str(lookup.get("_id", "")))
+        except Exception as exc:  # noqa: BLE001
+            return Err(str(exc))
+
+    def find_by_id(self, user_id: str) -> Result[User, str]:
+        """Find a user by their MongoDB ObjectId.
+
+        Args:
+            user_id: The user's MongoDB ObjectId as a string
+
+        Returns:
+            Result containing the User on success, or an error message
+        """
+        try:
+            from bson import ObjectId
+
+            document = self._collection.find_one({"_id": ObjectId(user_id)})
+            if document is None:
+                return Err("User not found")
+
+            return Ok(self._build_user(document))
+        except Exception as exc:  # noqa: BLE001
+            return Err(str(exc))
+
+    def update_tokens(
+        self,
+        user_id: str,
+        access_token: str,
+        refresh_token: str,
+        token_expires_at: object,
+    ) -> Result[None, str]:
+        """Update OAuth tokens for a user.
+
+        Args:
+            user_id: The user's MongoDB ObjectId as a string
+            access_token: The new access token
+            refresh_token: The new refresh token
+            token_expires_at: When the access token expires
+
+        Returns:
+            Result containing None on success, or an error message
+        """
+        try:
+            from bson import ObjectId
+
+            result = self._collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "access_token": access_token,
+                        "refresh_token": refresh_token,
+                        "token_expires_at": token_expires_at,
+                    }
+                },
+            )
+            if result.matched_count == 0:
+                return Err("User not found")
+            return Ok(None)
         except Exception as exc:  # noqa: BLE001
             return Err(str(exc))

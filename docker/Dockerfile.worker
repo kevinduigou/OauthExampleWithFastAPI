@@ -1,0 +1,33 @@
+# RQ Worker Dockerfile for background job processing
+# Uses uv for fast Python package management
+
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies using uv
+RUN uv sync --frozen --no-dev
+
+# Copy backend source code (worker needs access to job functions)
+COPY backend/ ./backend/
+
+# Set Python path to include the app directory
+ENV PYTHONPATH=/app
+
+# Default Redis URL (can be overridden via environment variable)
+ENV REDIS_URL=redis://redis:6379/0
+
+# Run the RQ worker with scheduler support
+CMD ["uv", "run", "rq", "worker", "--with-scheduler", "--url", "redis://redis:6379/0", "default"]

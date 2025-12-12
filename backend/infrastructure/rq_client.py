@@ -8,6 +8,7 @@ This infrastructure layer component handles:
 """
 
 import os
+from datetime import datetime
 from typing import Any
 
 import redis
@@ -130,3 +131,35 @@ class RQClient:
             return Err(f"Job is not finished yet (status: {job.get_status()})")
         except Exception as error:
             return Err(f"Failed to get job result: {error}")
+
+    def enqueue_at(
+        self,
+        scheduled_time: datetime,
+        function_path: str,
+        *args: Any,
+        job_timeout: int = 3600,
+        **kwargs: Any,
+    ) -> Result[str, str]:
+        """Enqueue a job to be executed at a specific time.
+
+        Args:
+            scheduled_time: The datetime when the job should be executed
+            function_path: Full path to the function (e.g., 'module.function')
+            *args: Positional arguments to pass to the function
+            job_timeout: Job timeout in seconds (default: 1 hour)
+            **kwargs: Keyword arguments to pass to the function
+
+        Returns:
+            Ok(job_id) if successful, Err(error_message) if failed
+        """
+        try:
+            job = self._queue.enqueue_at(
+                scheduled_time,
+                function_path,
+                *args,
+                job_timeout=job_timeout,
+                **kwargs,
+            )
+            return Ok(job.id)
+        except Exception as error:
+            return Err(f"Failed to enqueue scheduled job: {error}")
